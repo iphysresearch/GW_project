@@ -17,54 +17,6 @@ import random
 
 
 
-def init_params(input_dim, output_dim, conv_params, pool_params, fc_params, weight_scale = .01,):
-    #######################
-    #  Set the scale for weight initialization (random_normal)
-    #######################
-    mx.random.seed(1)
-    random.seed(1)
-    
-    filters, kernels, stride, padding, dilate = conv_params['num_filter'], conv_params['kernel'], \
-                                                conv_params['stride'], conv_params['padding'], conv_params['dilate']
-    kernels_pool, stride_pool, padding_pool, dilate_pool =  pool_params['kernel'], pool_params['stride'], \
-                                                            pool_params['padding'], pool_params['dilate']
-    hidden_dim = fc_params['hidden_dim']
-    
-    params = {}
-    F_in, H, W = input_dim
-    
-    # CNN ##########################################################################################################
-    for i, (nf, k, S, P, D, k_p, S_p, P_p, D_p) in enumerate(zip(filters, kernels, stride, padding, dilate, 
-                                                                 kernels_pool, stride_pool, padding_pool, dilate_pool,)):
-        
-        params['W{:d}'.format(i+1,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(nf,)+(F_in,)+k, ctx=ctx )
-        params['b{:d}'.format(i+1,)] = nd.random_normal(shape=nf, scale=weight_scale, ctx=ctx)
-        F_in = nf
-        
-        # 计算数据流的维度 (可以单独打包为一个公式)
-        H = (H - k[0] -(k[0]-1)*(D[0]-1) +2*P[0])//S[0] +1
-        W = (W - k[1] -(k[1]-1)*(D[1]-1) +2*P[1])//S[1] +1
-        H = (H - k_p[0] -(k_p[0]-1)*(D_p[0]-1) +2*P_p[0])//S_p[0] +1
-        W = (W - k_p[1] -(k_p[0]-1)*(D_p[0]-1) +2*P_p[1])//S_p[1] +1
-        i_out = i
-    # MLP ##########################################################################################################
-    hd_in = nf * H * W
-    for j, hd in enumerate(hidden_dim):
-        
-        params['W{:d}'.format(j+i_out+2,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(hd_in, hd), ctx=ctx )
-        params['b{:d}'.format(j+i_out+2,)] = nd.random_normal(shape=hd, scale=weight_scale, ctx=ctx)
-        hd_in = hd
-        j_out = j
-        
-    # OUTPUT ##########################################################################################################
-    params['W{:d}'.format(j_out+i_out+3,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(hd_in, output_dim), ctx=ctx )
-    params['b{:d}'.format(j_out+i_out+3,)] = nd.random_normal(shape=output_dim, scale=weight_scale, ctx=ctx)       
-    
-    return params
-
-
-
-
 class ConvNet(object):
     
     def __init__(self, input_dim = (1, 1, 8192), output_dim = 2,  params_inits = None,
@@ -143,15 +95,60 @@ class ConvNet(object):
 
         # 模型参数 ##########################################################################################################
         if params_inits:
-            self.params = params_inits
+            self.params = params_inits.copy()
         else:
-            self.params = init_params(input_dim, output_dim, conv_params, pool_params, fc_params,)        
+            self.init_params()        
             
         # 精度 ##########################################################################################################
         # for k, v in self.params.items():
         #     self.params[k] = v.astype(dtype)
 
+    def init_params(self, weight_scale = .01,):
+        #######################
+        #  Set the scale for weight initialization (random_normal)
+        #######################
+#         mx.random.seed()
+#         random.seed()
 
+        filters, kernels, stride, padding, dilate = self.conv_params['num_filter'], self.conv_params['kernel'], \
+                                                    self.conv_params['stride'], self.conv_params['padding'],\
+                                                    self.conv_params['dilate']
+        kernels_pool, stride_pool, padding_pool, dilate_pool =  self.pool_params['kernel'], self.pool_params['stride'], \
+                                                                self.pool_params['padding'], self.pool_params['dilate']
+        hidden_dim = self.fc_params['hidden_dim']
+
+        self.params = {}
+        F_in, H, W = self.input_dim
+
+        # CNN ##########################################################################################################
+        for i, (nf, k, S, P, D, k_p, S_p, P_p, D_p) in enumerate(zip(filters, kernels, stride, padding, dilate, 
+                                                                     kernels_pool, stride_pool, padding_pool, dilate_pool,)):
+
+            self.params['W{:d}'.format(i+1,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(nf,)+(F_in,)+k, ctx=ctx )
+            self.params['b{:d}'.format(i+1,)] = nd.random_normal(shape=nf, scale=weight_scale, ctx=ctx)
+            F_in = nf
+
+            # 计算数据流的维度 (可以单独打包为一个公式)
+            H = (H - k[0] -(k[0]-1)*(D[0]-1) +2*P[0])//S[0] +1
+            W = (W - k[1] -(k[1]-1)*(D[1]-1) +2*P[1])//S[1] +1
+            H = (H - k_p[0] -(k_p[0]-1)*(D_p[0]-1) +2*P_p[0])//S_p[0] +1
+            W = (W - k_p[1] -(k_p[0]-1)*(D_p[0]-1) +2*P_p[1])//S_p[1] +1
+            i_out = i
+        # MLP ##########################################################################################################
+        self.flatten_dim = nf * H * W
+        hd_in = nf * H * W
+        for j, hd in enumerate(hidden_dim):
+
+            self.params['W{:d}'.format(j+i_out+2,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(hd_in, hd), ctx=ctx )
+            self.params['b{:d}'.format(j+i_out+2,)] = nd.random_normal(shape=hd, scale=weight_scale, ctx=ctx)
+            hd_in = hd
+            j_out = j
+
+        # OUTPUT ##########################################################################################################
+        self.params['W{:d}'.format(j_out+i_out+3,)] = nd.random_normal(loc=0, scale=weight_scale, shape=(hd_in, self.output_dim), ctx=ctx )
+        self.params['b{:d}'.format(j_out+i_out+3,)] = nd.random_normal(shape=self.output_dim, scale=weight_scale, ctx=ctx)       
+
+        return self.params
 
     def network(self, X=None, debug=False, drop_prob = 0.25, ):
                 

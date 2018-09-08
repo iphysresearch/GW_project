@@ -47,7 +47,20 @@ def get_variable_name(variable, loc):
         if loc[key] == variable:
             return key
 
-
+import inspect
+def retrieve_name(var):
+    '''
+    utils:
+    get back the name of variables
+    '''
+    callers_local_vars = inspect.currentframe().f_back.f_locals.items()
+    try:
+        output = [var_name for var_name, var_val in callers_local_vars if var_val is var]
+        assert len(output) == 1
+    except:
+        print('Found same value in:', output)
+    finally:
+        return output[0]
 
 def mkdir_checkdir(path = "/output"):
 

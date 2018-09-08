@@ -229,21 +229,28 @@ class Solver_nd(object):
             assert self.train.shape == self.test.shape
         except:
             print('self.train.shape != self.test.shape')
-            
         
         self.SNR = SNR
 
 #         self.update_rule = kwargs.pop('update_rule', 'sgd')
 #         self.optim_config = kwargs.pop('optim_config', {})
+        self.params = kwargs.pop('params', None)   # Transfer learning
+        if self.params:  # 若有迁移学习
+            self.params = self.params.copy()
+            try:         # 考察导入的模型参数变量 与 导入模型的参数之间得到关系
+                assert (self.params == model.params)# and (self.params is not model.params)
+            except Exception as e:
+                print(e)
+                print('导入的模型参数与导入模型现默认参数有着相同的值~')
         self.batch_size = kwargs.pop('batch_size', 256)
         self.lr_rate = kwargs.pop('lr_rate', 0.01)
         self.lr_decay = kwargs.pop('lr_decay', 0.01)
         self.num_epoch = kwargs.pop('num_epoch', 10)
         self.smoothing_constant = kwargs.pop('smoothing_constant', 0.01)
-
         
         self.checkpoint_name = kwargs.pop('checkpoint_name', None)
         self.verbose = kwargs.pop('verbose', False)
+        self.oldversion = kwargs.pop('oldversion', False)
 #         self.print_every = kwargs.pop('print_every', 100)
         
 
@@ -254,10 +261,42 @@ class Solver_nd(object):
 #         if not hasattr(optim, self.update_rule):
 #             raise ValueError('Unrecognized update rule: "%s"' % self.update_rule)
 #         self.update_rule = getattr(optim, self.update_rule)
+        
+        if self.oldversion:
+            self._reset_data_old()
+        else:
+            self._reset_data()
+        
+        if self.params:
+            self._reset_params_Transfer()
+        else:
+            self._reset_params()
+        
+        
+        
+    def _reset_data_old(self):
+        try:
+            assert self.train.shape[1] == self.test.shape[1]
+        except:
+            print('self.train.shape[1] != self.test.shape[1],',self.train.shape[1],self.test.shape[1])
+        self.train_size = self.train.shape[0]
+        self.test_size = self.test.shape[0]
+        
+        y = nd.array(~self.train.sigma.isnull() +0)
+        X = nd.array(Normolise(self.train.drop(['mass','positions','gaps','max_peak','sigma','SNR_mf','SNR_mf0'],axis=1)))
+        print('Label for training:', y.shape)
+        print('Dataset for training:', X.shape, end='\n\n')
 
+        dataset_train = gluon.data.ArrayDataset(X, y)
+        self.train_data = gluon.data.DataLoader(dataset_train, self.batch_size, shuffle=True, last_batch='keep')
 
-        self._reset_data()
-        self._reset_params()
+        y = nd.array(~self.test.sigma.isnull() +0)
+        X = nd.array(Normolise(self.test.drop(['mass','positions','gaps','max_peak','sigma','SNR_mf','SNR_mf0'],axis=1)))
+        print('Label for testing:', y.shape)
+        print('Dataset for testing:', X.shape, end='\n\n')
+
+        dataset_test = gluon.data.ArrayDataset(X, y)
+        self.test_data = gluon.data.DataLoader(dataset_test, self.batch_size, shuffle=True, last_batch='keep')        
         
 
     def _reset_data(self):
@@ -278,7 +317,41 @@ class Solver_nd(object):
         print('Label for training:', self.y_train.shape)
         print('Label for testing:', self.y_test.shape)
 
+    def _reset_params_Transfer(self):
+        self.epoch = 0
+        self.best_test_acc = 0
+        self.best_params = {}
+        self.moving_loss = 0
+
+        self.train_acc_history = []
+        self.test_acc_history = []
+
+        self.loss_history = []
+        self.loss_v_history = []
+        self.moving_loss_history = []
+            
+#         self.optim_configs = {}
+#         for p in self.model.params:
+#             d = {k: v for k, v in self.optim_config.items()}
+#             self.optim_configs[p] = d    
+
+
+        # Opt. for Adam ############
+        self.vs = []
+        self.sqrs = []
         
+        # Transfer Learning ########
+        self.model.init_params()
+        for key, params in self.params.items():
+            if params.shape[0] == self.model.flatten_dim:
+                break
+            self.model.params[key] = params.copy()
+
+        # And assign space for gradients
+        for param in self.model.params.values():
+            param.attach_grad()
+            self.vs.append(param.zeros_like())
+            self.sqrs.append(param.zeros_like())        
 
     def _reset_params(self):
         self.epoch = 0
@@ -312,7 +385,7 @@ class Solver_nd(object):
         
 
 
-    def Training(self):
+    def Training(self, Iterator = False):
         
         t = 0    
         try:
@@ -321,7 +394,8 @@ class Solver_nd(object):
                 self.epoch = epoch
                 self.lr_rate = lr_decay(self.lr_rate, epoch, self.lr_decay)
 
-                self._reset_noise()
+                if self.oldversion: pass
+                else: self._reset_noise()
 
                 self._iteration(t, epoch)
 
@@ -343,8 +417,8 @@ class Solver_nd(object):
     #                 print('{"metric": "Test_acc. for SNR=%s in epoches", "value": %.4f}' %(str(SNR), test_accuracy) )
                 else:
                     print("Epoch {:d}, Moving_loss: {:.6f}, Epoch_loss(mean): {:.6f}, Train_acc {:.4f}, Test_acc {:.4f}(Best:{:.4f})".format(epoch, self.moving_loss_history[-1], np.mean(self.Epoch_loss), self.train_acc_history[-1], self.test_acc_history[-1], self.best_test_acc))
-
-                yield self.loss_history, self.loss_v_history, self.moving_loss_history, self.train_acc_history, self.test_acc_history
+#                 if Iterator:
+#                     yield self.loss_history, self.loss_v_history, self.moving_loss_history, self.train_acc_history, self.test_acc_history
 
         except KeyboardInterrupt as e:
             print(e)
@@ -386,7 +460,7 @@ class Solver_nd(object):
 #             print('{"metric": "Testing Loss for SNR=%s", "value": %.5f}' %(str(SNR), curr_loss_v*1.0) )            
             else:
                 print('Working on epoch {:d}. Curr_loss: {:.5f} (complete percent: {:.2f}/100)'.format(epoch, curr_loss*1.0, 1.0 * batch_i / (self.train_size/self.batch_size) * 100/ 2) , end='')
-#                 sys.stdout.write("\r")
+                sys.stdout.write("\r")
 
 
 
@@ -457,7 +531,7 @@ class Solver_nd(object):
             print('Evaluating accuracy. (complete percent: {:.2f}/100)'.format(1.0 * batch_i / (self.train_size/self.batch_size) * 100 /2)+' '*20, end='')
             sys.stdout.write("\r")        
 
-        return (numerator / denominator).asscalar()   
+        return (numerator / denominator).asscalar()
 
 
     def _save_checkpoint(self):

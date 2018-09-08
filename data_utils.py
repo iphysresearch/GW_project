@@ -287,6 +287,7 @@ def Normolise_nd(X, num_channel):
 # 
 # 
 # 
+# 下面是早期直接生成数据集的代码
 ##########################################################################################
 # -- To calculate the PSD of the data, choose an overlap and a window (common to all detectors)
 #   that minimizes "spectral leakage" https://en.wikipedia.org/wiki/Spectral_leakage
@@ -462,6 +463,3 @@ def creat_data(GW_train, noise1, SNR):
 #         print('{"metric": "LOOP for SNR=%s", "value": %d}' %(str(SNR), int(i-1)) )
         sys.stdout.write("\r")
     return data
-
-
-

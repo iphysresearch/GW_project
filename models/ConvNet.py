@@ -16,11 +16,11 @@ from mxnet import autograd, gluon
 import random
 
 
-
 class ConvNet(object):
     
-    def __init__(self, input_dim = (1, 1, 8192), output_dim = 2,  params_inits = None,
-                 conv_params = None, act_params = None, pool_params = None, fc_params = None, dtype = None):
+    def __init__(self, params_inits = None,
+                 conv_params = None, act_params = None, 
+                 pool_params = None, fc_params = None, **kwargs):
         """
         Initialize a Convolution Network.
 
@@ -30,28 +30,18 @@ class ConvNet(object):
         - filter_size: Width/height of filters to use in the convolutional layer
         - hidden_dim: Number of units to use in the fully-connected hidden layer
         - num_classes: Number of scores to produce from the final affine layer.
+        - drop_prob: Probability of dropout. Defalt 0.
         - weight_scale: Scalar giving standard deviation for random initialization
           of weights.
         - reg: Scalar giving L2 regularization strength
         - dtype: numpy datatype to use for computation.
         """
         self.params = {}
-        self.dtype = dtype
-        self.output_dim = output_dim
-        self.input_dim = input_dim
+        self.input_dim = kwargs.pop('input_dim', (1, 1, 8192))
+        self.output_dim = kwargs.pop('output_dim', 2)
+        self.drop_prob = kwargs.pop('drop_prob', 0)
         
-        # conv_params = {'kernel': ((1,16), (1,8), (1,8)), 
-        #                'num_filter': (16//2, 32//2, 64//2),
-        #                'stride': ((1,1), (1,1), (1,1)),
-        #                'padding': ((0,0), (0,0), (0,0)),
-        #                'dilate': ((1,1), (1,1), (1,1))}
-        # act_params = {'act_type': ('relu', 'relu', 'relu', 'relu', 'relu')}
-        # pool_params = {'pool_type': ('max', 'max', 'max'),
-        #                'kernel': ((1,8), (1,8), (1,8)),
-        #                'stride': ((1,2), (1,2), (1,2)),
-        #                'padding': ((0,0), (0,0), (0,0)),
-        #                'dilate': ((1,1), (1,1), (1,1))}
-        # fc_params = {'hidden_dim': (64, 64)}
+        self.dtype = kwargs.pop('dtype', None)
         
         try: 
             check_dict_dim(conv_params) 
@@ -79,7 +69,6 @@ class ConvNet(object):
         else:
             raise NameError("Parameters 'act_params' are not defined!")        
         if pool_params:
-            print('Loading the params...')
             self.pool_params = pool_params
         else:
             self.pool_params = {'pool_type': ('avg', 'avg', 'avg'),
@@ -150,7 +139,7 @@ class ConvNet(object):
 
         return self.params
 
-    def network(self, X=None, debug=False, drop_prob = 0.25, ):
+    def network(self, X=None, debug=False,):
                 
         filters, kernels, stride, padding, dilate = self.conv_params['num_filter'], self.conv_params['kernel'], \
                                                     self.conv_params['stride'], self.conv_params['padding'], self.conv_params['dilate']
@@ -190,7 +179,7 @@ class ConvNet(object):
             
             if autograd.is_training():
                 # 对激活函数的输出使用droupout
-                FClayer_out = dropout(FClayer_out, drop_prob)
+                FClayer_out = dropout(FClayer_out, self.drop_prob)
             if debug:
                 print("layer{:d} shape: {}".format(j+i_out+2, FClayer_out.shape))
             interlayer.append(FClayer_out)            

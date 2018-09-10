@@ -13,6 +13,8 @@ ctx = check_ctx()
 
 from optim import *
 
+from fast_progress import master_bar, progress_bar
+
 # importing MxNet >= 1.0
 import mxnet as mx
 from mxnet import ndarray as nd
@@ -234,14 +236,7 @@ class Solver_nd(object):
 
 #         self.update_rule = kwargs.pop('update_rule', 'sgd')
 #         self.optim_config = kwargs.pop('optim_config', {})
-        self.params = kwargs.pop('params', None)   # Transfer learning
-        if self.params:  # 若有迁移学习
-            self.params = self.params.copy()
-            try:         # 考察导入的模型参数变量 与 导入模型的参数之间得到关系
-                assert (self.params == model.params)# and (self.params is not model.params)
-            except Exception as e:
-                print(e)
-                print('导入的模型参数与导入模型现默认参数有着相同的值~')
+
         self.batch_size = kwargs.pop('batch_size', 256)
         self.lr_rate = kwargs.pop('lr_rate', 0.01)
         self.lr_decay = kwargs.pop('lr_decay', 0.01)
@@ -253,6 +248,19 @@ class Solver_nd(object):
         self.oldversion = kwargs.pop('oldversion', False)
 #         self.print_every = kwargs.pop('print_every', 100)
         
+    
+        self.params = kwargs.pop('params', None)   # Transfer learning
+        if self.params:  # 若有迁移学习
+            self.params = self.params.copy()
+            try:         # 考察导入的模型参数变量 与 导入模型的参数之间得到关系
+                assert [np.allclose(p1.asnumpy(), p2.asnumpy()) for (_,p1), (_,p2) in zip(self.params.items(), model.params.items())]
+
+            except:
+                print('导入的模型参数与导入模型现默认参数有着相同的值~')
+                raise
+            self._reset_params_Transfer()
+        else:
+            self._reset_params()
 
         if len(kwargs) != 0:
             extra = ', '.join('"%s"' %k for k in list(kwargs.keys()))
@@ -266,12 +274,6 @@ class Solver_nd(object):
             self._reset_data_old()
         else:
             self._reset_data()
-        
-        if self.params:
-            self._reset_params_Transfer()
-        else:
-            self._reset_params()
-        
         
         
     def _reset_data_old(self):
@@ -389,8 +391,10 @@ class Solver_nd(object):
         
         t = 0    
         try:
-
+#             self.mb = master_bar(range(1, self.num_epoch + 1))
+#             self.mb.names = ['loss', 'loss_var']
             for epoch in range(1, self.num_epoch + 1):
+#             for epoch in self.mb:
                 self.epoch = epoch
                 self.lr_rate = lr_decay(self.lr_rate, epoch, self.lr_decay)
 
@@ -417,22 +421,26 @@ class Solver_nd(object):
     #                 print('{"metric": "Test_acc. for SNR=%s in epoches", "value": %.4f}' %(str(SNR), test_accuracy) )
                 else:
                     print("Epoch {:d}, Moving_loss: {:.6f}, Epoch_loss(mean): {:.6f}, Train_acc {:.4f}, Test_acc {:.4f}(Best:{:.4f})".format(epoch, self.moving_loss_history[-1], np.mean(self.Epoch_loss), self.train_acc_history[-1], self.test_acc_history[-1], self.best_test_acc))
+
+#                     self.mb.first_bar.comment = f'first bar stat'
+#                     self.mb.write(f'Finished loop {epoch}')
+        
 #                 if Iterator:
 #                     yield self.loss_history, self.loss_v_history, self.moving_loss_history, self.train_acc_history, self.test_acc_history
 
         except KeyboardInterrupt as e:
             print(e)
-            print('Early stoping at epoch=%s' %str(epoch))        
+            print('Early stoping at epoch=%s' %str(epoch))
 
         self.model.params = self.best_params
         print('Finished!')
-
+    
     def _iteration(self, t, epoch):
         
         self.Epoch_loss = []
 
         
-        for batch_i, ((data, label),(data_v, label_v)) in enumerate(zip(self.train_data, self.test_data)):
+        for batch_i, ((data, label),(data_v, label_v)) in enumerate(zip(self.train_data, self.test_data,)):
 
             loss = self.loss(data, label, train = True)
             loss_v, _= self.loss(data_v, label_v, train = False)
@@ -461,6 +469,13 @@ class Solver_nd(object):
             else:
                 print('Working on epoch {:d}. Curr_loss: {:.5f} (complete percent: {:.2f}/100)'.format(epoch, curr_loss*1.0, 1.0 * batch_i / (self.train_size/self.batch_size) * 100/ 2) , end='')
                 sys.stdout.write("\r")
+                
+#                 x = np.arange(1, len(self.loss_history)+1,1)
+#                 graphs = [[x, self.loss_history], [x, self.loss_v_history]]
+#                 x_bounds = [0, 12]
+#                 y_bounds = [0, 1]
+#                 self.mb.update_graph(graphs, x_bounds, y_bounds)
+#                 self.mb.child.comment = f'second bar stat'
 
 
 
@@ -556,3 +571,7 @@ class Solver_nd(object):
         
         filename = '%s_epoch_%d.pkl' % (self.checkpoint_name, self.epoch)
         nd.save(filename, checkpoint)
+        
+        
+    
+        
